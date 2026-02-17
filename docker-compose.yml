@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: pulse-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: orders
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - pulse-network
+
+  flyway:
+    image: flyway/flyway:10-alpine
+    container_name: pulse-flyway
+    command: -url=jdbc:postgresql://postgres:5432/orders -user=postgres -password=postgres -connectRetries=60 migrate
+    volumes:
+      - ./migrations/postgres:/flyway/sql
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - pulse-network
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pulse-app
+    environment:
+      PG_USER: postgres
+      PG_PASSWORD: postgres
+      PG_DB_NAME: orders
+    ports:
+      - "8080:8080"
+    depends_on:
+      flyway:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    restart: on-failure
+    networks:
+      - pulse-network
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  pulse-network:
+    driver: bridge
