@@ -3,27 +3,31 @@ package cancellation
 import (
 	"context"
 	"fmt"
-	"log"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/loloneme/pulse-flow/internal/domain/events"
+	"github.com/loloneme/pulse-flow/internal/infrastructure/logger"
 	"github.com/loloneme/pulse-flow/internal/infrastructure/messaging"
+	"go.uber.org/zap"
 )
 
 type Worker struct {
+	log       *logger.WorkerLogger
 	eventBus  messaging.EventBus
 	orderRepo OrderRepo
 }
 
-func New(eventBus messaging.EventBus, orderRepo OrderRepo) *Worker {
+func New(log *logger.WorkerLogger, eventBus messaging.EventBus, orderRepo OrderRepo) *Worker {
 	return &Worker{
+		log:       log,
 		eventBus:  eventBus,
 		orderRepo: orderRepo,
 	}
 }
 
 func (w *Worker) Handle(ctx context.Context, event messaging.Event) error {
-	log.Printf("[Cancellation Worker] Processing event: %v", event.Type())
+	start := time.Now()
 
 	var orderID uuid.UUID
 	var reason string
@@ -36,7 +40,6 @@ func (w *Worker) Handle(ctx context.Context, event messaging.Event) error {
 		}
 		orderID = payload.OrderID
 		reason = payload.Reason
-		log.Printf("[Cancellation Worker] Handling ValidationFailed for order %s: %s", orderID, reason)
 
 	case messaging.PaymentFailed:
 		payload, ok := event.Payload().(events.PaymentFailedPayload)
@@ -45,22 +48,27 @@ func (w *Worker) Handle(ctx context.Context, event messaging.Event) error {
 		}
 		orderID = payload.OrderID
 		reason = payload.Reason
-		log.Printf("[Cancellation Worker] Handling PaymentFailed for order %s: %s", orderID, reason)
 
 	default:
 		return fmt.Errorf("unsupported event type: %s", event.Type())
 	}
 
+	eventLog := w.log.LogEventStart(ctx, string(event.Type()), event.ID(), orderID)
+	ctx = logger.WithEventHandleState(ctx, logger.EventHandleState{Log: eventLog, Start: start})
+
 	order, err := w.orderRepo.GetByID(ctx, orderID)
 	if err != nil {
+		w.log.Error(ctx, fmt.Errorf("failed to get order: %w", err))
 		return fmt.Errorf("failed to get order: %w", err)
 	}
 
 	if err := order.Cancel(); err != nil {
+		w.log.Error(ctx, fmt.Errorf("failed to mark order as cancelled: %w", err))
 		return fmt.Errorf("failed to mark order as cancelled: %w", err)
 	}
 
 	if err := w.orderRepo.Save(ctx, order); err != nil {
+		w.log.Error(ctx, fmt.Errorf("failed to save order: %w", err))
 		return fmt.Errorf("failed to save order: %w", err)
 	}
 
@@ -69,9 +77,10 @@ func (w *Worker) Handle(ctx context.Context, event messaging.Event) error {
 		Reason:  reason,
 	})
 	if err := w.eventBus.Publish(ctx, cancelledEvent); err != nil {
+		w.log.Error(ctx, fmt.Errorf("failed to publish OrderCancelled: %w", err))
 		return fmt.Errorf("failed to publish OrderCancelled: %w", err)
 	}
 
-	log.Printf("[Cancellation Worker] Order %s cancelled due to: %s", order.ID, reason)
+	w.log.Success(ctx, zap.String("order_id", order.ID.String()), zap.String("reason", reason))
 	return nil
 }

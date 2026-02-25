@@ -37,5 +37,5 @@ func (m *MockWarehouseService) CheckProductAvailability(ctx context.Context, pro
 	}
 
 	hasStock := rand.Float64() < m.SuccessRate
-	return hasStock, nil
+	return hasStock, errors.New("out of stock")
 }

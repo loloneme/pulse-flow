@@ -5,6 +5,7 @@ import (
 
 	"github.com/google/uuid"
 	domain "github.com/loloneme/pulse-flow/internal/domain/order"
+	"github.com/loloneme/pulse-flow/internal/workers/validation/mocks"
 )
 
 type OrderRepo interface {
@@ -18,7 +19,7 @@ type WarehouseService interface {
 
 type AntiFraudService interface {
 	CheckUserCreditLimit(ctx context.Context, userID uuid.UUID) (bool, error)
-	CheckOrder(ctx context.Context, order *domain.Order) (bool, string, error)
+	CheckOrder(ctx context.Context, order *domain.Order) (mocks.OrderCheckResult, error)
 }
 
 type UserService interface {

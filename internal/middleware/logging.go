@@ -24,11 +24,11 @@ func LoggingMiddleware() echo.MiddlewareFunc {
 
 			logger.Log.Info("Incoming request",
 				zap.String("component", "http"),
-				zap.String("request_id", requestID),
-				zap.String("method", c.Request().Method),
-				zap.String("path", c.Request().URL.Path),
-				zap.String("remote_addr", c.RealIP()),
-				zap.String("user_agent", c.Request().UserAgent()),
+				zap.String("trace.id", requestID),
+				zap.String("http.request.method", c.Request().Method),
+				zap.String("url.path", c.Request().URL.Path),
+				zap.String("client.ip", c.RealIP()),
+				zap.String("user_agent.original", c.Request().UserAgent()),
 			)
 
 			err := next(c)
@@ -36,12 +36,12 @@ func LoggingMiddleware() echo.MiddlewareFunc {
 			latency := time.Since(start)
 			fields := []zap.Field{
 				zap.String("component", "http"),
-				zap.String("request_id", requestID),
-				zap.String("method", c.Request().Method),
-				zap.String("path", c.Request().URL.Path),
-				zap.Int("status_code", c.Response().Status),
-				zap.Int64("latency_ms", latency.Milliseconds()),
-				zap.Int64("bytes_out", c.Response().Size),
+				zap.String("trace.id", requestID),
+				zap.String("http.request.method", c.Request().Method),
+				zap.String("url.path", c.Request().URL.Path),
+				zap.Int("http.response.status_code", c.Response().Status),
+				zap.Int64("event.duration", latency.Nanoseconds()),
+				zap.Int64("http.response.body.bytes", c.Response().Size),
 			}
 
 			if err != nil {

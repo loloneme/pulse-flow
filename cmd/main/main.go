@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -11,10 +10,14 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
+	echomw "github.com/labstack/echo/v4/middleware"
+	"github.com/loloneme/pulse-flow/internal/config"
 	"github.com/loloneme/pulse-flow/internal/infrastructure/db/postgres"
+	"github.com/loloneme/pulse-flow/internal/infrastructure/logger"
+	"github.com/loloneme/pulse-flow/internal/infrastructure/messaging"
 	"github.com/loloneme/pulse-flow/internal/infrastructure/messaging/in_memory"
 	"github.com/loloneme/pulse-flow/internal/infrastructure/persistence/order"
+	"github.com/loloneme/pulse-flow/internal/middleware"
 	createOrderRPC "github.com/loloneme/pulse-flow/internal/rpc/create_order"
 	createOrderUsecase "github.com/loloneme/pulse-flow/internal/usecase/create_order"
 	"github.com/loloneme/pulse-flow/internal/workers/cancellation"
@@ -23,6 +26,7 @@ import (
 	paymentMocks "github.com/loloneme/pulse-flow/internal/workers/payment/mocks"
 	"github.com/loloneme/pulse-flow/internal/workers/validation"
 	validationMocks "github.com/loloneme/pulse-flow/internal/workers/validation/mocks"
+	"go.uber.org/zap"
 )
 
 type ExternalServices struct {
@@ -40,6 +44,15 @@ type Workers struct {
 }
 
 func main() {
+	if err := logger.Init(); err != nil {
+		panic(fmt.Errorf("failed to init logger: %w", err))
+	}
+
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		panic(fmt.Errorf("failed to load config: %w", err))
+	}
+
 	db, err := postgres.NewFromConfig(context.Background())
 	if err != nil {
 		panic(fmt.Errorf("failed to connect to postgres: %w", err))
@@ -48,16 +61,12 @@ func main() {
 	orderRepo := order.NewRepository(db)
 	eventBus := in_memory.New()
 
-	// Setup external services
 	externalServices := setupExternalServices()
 
-	// Setup workers
-	workers := setupWorkers(eventBus, orderRepo, externalServices)
+	workers := setupWorkers(eventBus, orderRepo, externalServices, cfg.WorkerConfig)
 
-	// Subscribe workers to events
 	subscribeWorkers(eventBus, workers)
 
-	// Start workers
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	startWorkers(ctx, workers)
@@ -66,8 +75,9 @@ func main() {
 	createOrderHandler := createOrderRPC.New(createOrderService)
 
 	e := echo.New()
-	e.Use(middleware.Recover())
-	e.Use(middleware.CORS())
+	e.Use(echomw.Recover())
+	e.Use(echomw.CORS())
+	e.Use(middleware.LoggingMiddleware())
 
 	api := e.Group("/api/v1")
 	{
@@ -77,16 +87,12 @@ func main() {
 		}
 	}
 
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
-	addr := ":" + port
+	addr := ":" + cfg.Port
 
 	go func() {
-		log.Printf("Starting reviewers-app HTTP server on %s\n", addr)
+		logger.Log.Info("Starting HTTP server", zap.String("addr", addr))
 		if err := e.Start(addr); err != nil && err != http.ErrServerClosed {
-			log.Printf("failed to start server: %v", err)
+			logger.Log.Error("Failed to start server", zap.Error(err))
 			panic(err)
 		}
 	}()
@@ -95,13 +101,12 @@ func main() {
 	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
 	<-quit
 
-	// Cancel workers context
 	cancel()
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
 	if err := e.Shutdown(shutdownCtx); err != nil {
-		e.Logger.Fatal(err)
+		logger.Log.Fatal("Shutdown failed", zap.Error(err))
 	}
 }
 
@@ -114,25 +119,33 @@ func setupExternalServices() *ExternalServices {
 	}
 }
 
-func setupWorkers(eventBus *in_memory.Bus, orderRepo *order.Repository, services *ExternalServices) *Workers {
+func setupWorkers(eventBus *in_memory.Bus, orderRepo *order.Repository, services *ExternalServices, cfg *config.WorkerConfig) *Workers {
 	return &Workers{
 		ValidationWorker: validation.New(
+			cfg,
+			logger.NewWorkerLogger("validation"),
 			eventBus,
 			orderRepo,
-			services.WarehouseService,
-			services.AntiFraudService,
-			services.UserService,
+			validation.Services{
+				WarehouseService: services.WarehouseService,
+				AntiFraudService: services.AntiFraudService,
+				UserService:      services.UserService,
+			},
 		),
 		PaymentWorker: payment.New(
+			cfg,
+			logger.NewWorkerLogger("payment"),
 			eventBus,
 			orderRepo,
 			services.PaymentService,
 		),
 		CancellationWorker: cancellation.New(
+			logger.NewWorkerLogger("cancellation"),
 			eventBus,
 			orderRepo,
 		),
 		ConfirmationWorker: confirmation.New(
+			logger.NewWorkerLogger("confirmation"),
 			eventBus,
 			orderRepo,
 		),
@@ -140,25 +153,24 @@ func setupWorkers(eventBus *in_memory.Bus, orderRepo *order.Repository, services
 }
 
 func subscribeWorkers(eventBus *in_memory.Bus, workers *Workers) {
-	if err := eventBus.Subscribe("OrderCreated", workers.ValidationWorker); err != nil {
-		log.Fatalf("Failed to subscribe ValidationWorker: %v", err)
+	subscriptions := map[messaging.EventType]messaging.Subscriber{
+		messaging.OrderCreated:     workers.ValidationWorker,
+		messaging.OrderValidated:   workers.PaymentWorker,
+		messaging.ValidationFailed: workers.CancellationWorker,
+		messaging.PaymentFailed:    workers.CancellationWorker,
+		messaging.PaymentSucceeded: workers.ConfirmationWorker,
 	}
-	if err := eventBus.Subscribe("OrderValidated", workers.PaymentWorker); err != nil {
-		log.Fatalf("Failed to subscribe PaymentWorker: %v", err)
+
+	for event, handler := range subscriptions {
+		if err := eventBus.Subscribe(event, handler); err != nil {
+			logger.Log.Fatal("Failed to subscribe", zap.String("event", string(event)), zap.Error(err))
+		}
 	}
-	if err := eventBus.Subscribe("ValidationFailed", workers.CancellationWorker); err != nil {
-		log.Fatalf("Failed to subscribe CancellationWorker to ValidationFailed: %v", err)
-	}
-	if err := eventBus.Subscribe("PaymentFailed", workers.CancellationWorker); err != nil {
-		log.Fatalf("Failed to subscribe CancellationWorker to PaymentFailed: %v", err)
-	}
-	if err := eventBus.Subscribe("PaymentSucceeded", workers.ConfirmationWorker); err != nil {
-		log.Fatalf("Failed to subscribe ConfirmationWorker: %v", err)
-	}
-	log.Println("All workers subscribed successfully")
+
+	logger.Log.Info("All workers subscribed successfully")
 }
 
 func startWorkers(ctx context.Context, workers *Workers) {
-	log.Println("Starting workers...")
-	log.Println("Workers started and ready to process events")
+	logger.Log.Info("Starting workers...")
+	logger.Log.Info("Workers started and ready to process events")
 }

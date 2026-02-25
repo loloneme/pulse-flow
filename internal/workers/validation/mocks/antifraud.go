@@ -10,6 +10,11 @@ import (
 	domain "github.com/loloneme/pulse-flow/internal/domain/order"
 )
 
+type OrderCheckResult struct {
+	Success bool
+	Reason  string
+}
+
 type MockAntiFraudService struct {
 	SuccessRate      float64
 	AvgDelay         time.Duration
@@ -43,11 +48,11 @@ func (m *MockAntiFraudService) CheckUserCreditLimit(ctx context.Context, userID 
 	return true, nil
 }
 
-func (m *MockAntiFraudService) CheckOrder(ctx context.Context, order *domain.Order) (bool, string, error) {
+func (m *MockAntiFraudService) CheckOrder(ctx context.Context, order *domain.Order) (OrderCheckResult, error) {
 	delay := time.Duration(rand.Intn(int(m.AvgDelay * 2)))
 	select {
 	case <-ctx.Done():
-		return false, "", ctx.Err()
+		return OrderCheckResult{Success: false, Reason: ""}, ctx.Err()
 	case <-time.After(delay):
 	}
 
@@ -71,5 +76,5 @@ func (m *MockAntiFraudService) CheckOrder(ctx context.Context, order *domain.Ord
 		}
 	}
 
-	return passed, reason, nil
+	return OrderCheckResult{Success: passed, Reason: reason}, nil
 }

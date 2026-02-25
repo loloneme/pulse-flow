@@ -38,6 +38,8 @@ services:
       dockerfile: Dockerfile
     container_name: pulse-app
     environment:
+      PG_HOST: postgres
+      PG_PORT: 5432
       PG_USER: postgres
       PG_PASSWORD: postgres
       PG_DB_NAME: orders
@@ -49,6 +51,9 @@ services:
       postgres:
         condition: service_healthy
     restart: on-failure
+    labels:
+      co.elastic.logs/enabled: "true"
+      co.elastic.logs/json.keys_under_root: "true"
     networks:
       - pulse-network
 

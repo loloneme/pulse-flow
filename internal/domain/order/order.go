@@ -132,14 +132,9 @@ func (o *Order) MarkAsConfirmed() error {
 }
 
 func (o *Order) Cancel() error {
-	switch o.Status {
-	case StatusCreated, StatusValidated, StatusPaymentPending:
-		o.Status = StatusCancelled
-		o.UpdatedAt = time.Now()
-		return nil
-	default:
-		return ErrStatusTransition
-	}
+	o.Status = StatusCancelled
+	o.UpdatedAt = time.Now()
+	return nil
 }
 
 func (o *Order) CanTransitionTo(newStatus Status) bool {

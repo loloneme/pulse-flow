@@ -3,11 +3,12 @@ package in_memory
 import (
 	"context"
 	"fmt"
-	"log"
 	"sync"
 	"time"
 
+	"github.com/loloneme/pulse-flow/internal/infrastructure/logger"
 	"github.com/loloneme/pulse-flow/internal/infrastructure/messaging"
+	"go.uber.org/zap"
 )
 
 type Bus struct {
@@ -92,7 +93,11 @@ func (b *Bus) handleEvent(event messaging.Event) {
 			defer cancel()
 
 			if err := sub.Handle(ctx, event); err != nil {
-				log.Printf("error handling event: %v", err)
+				logger.Log.Error("Error handling event",
+					zap.String("event_type", string(event.Type())),
+					zap.String("event_id", event.ID().String()),
+					zap.Error(err),
+				)
 			}
 		}(sub)
 	}

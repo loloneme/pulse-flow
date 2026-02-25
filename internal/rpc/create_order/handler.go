@@ -4,7 +4,9 @@ import (
 	"net/http"
 
 	"github.com/labstack/echo/v4"
+	"github.com/loloneme/pulse-flow/internal/infrastructure/logger"
 	"github.com/loloneme/pulse-flow/internal/usecase/create_order"
+	"go.uber.org/zap"
 )
 
 type Handler struct {
@@ -18,6 +20,7 @@ func New(createOrderService CreateOrderService) *Handler {
 func (h *Handler) CreateOrder(c echo.Context) error {
 	httpReq := new(CreateOrderRequest)
 	if err := c.Bind(httpReq); err != nil {
+		logger.Log.Warn("Invalid create order request", zap.Error(err))
 		return c.JSON(http.StatusBadRequest, echo.Map{"error": err.Error()})
 	}
 
@@ -28,6 +31,7 @@ func (h *Handler) CreateOrder(c echo.Context) error {
 	}
 
 	if err := h.createOrderService.CreateOrder(c.Request().Context(), usecaseReq); err != nil {
+		logger.Log.Error("Create order failed", zap.Error(err))
 		return c.JSON(http.StatusInternalServerError, echo.Map{"error": err.Error()})
 	}
 

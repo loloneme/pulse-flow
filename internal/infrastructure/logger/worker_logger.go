@@ -15,7 +15,7 @@ type WorkerLogger struct {
 func NewWorkerLogger(workerName string) *WorkerLogger {
 	logger := Log.With(
 		zap.String("component", "worker"),
-		zap.String("worker_name", workerName),
+		zap.String("labels.worker_name", workerName),
 	)
 
 	return &WorkerLogger{
@@ -25,13 +25,13 @@ func NewWorkerLogger(workerName string) *WorkerLogger {
 
 func (wl *WorkerLogger) ForEvent(ctx context.Context, eventType string, eventID, orderID uuid.UUID) *zap.Logger {
 	fields := []zap.Field{
-		zap.String("event_type", eventType),
-		zap.String("event_id", eventID.String()),
-		zap.String("order_id", orderID.String()),
+		zap.String("event.action", eventType),
+		zap.String("event.id", eventID.String()),
+		zap.String("labels.order_id", orderID.String()),
 	}
 
 	if corrID := GetCorrelationID(ctx); corrID != "" {
-		fields = append(fields, zap.String("correlation_id", corrID))
+		fields = append(fields, zap.String("trace.id", corrID))
 	}
 
 	return wl.logger.With(fields...)
@@ -54,7 +54,7 @@ func (wl *WorkerLogger) LogEventSuccess(
 	additionalFields ...zap.Field,
 ) {
 	fields := []zap.Field{
-		zap.Int64("duration_ms", duration.Milliseconds()),
+		zap.Int64("event.duration", duration.Nanoseconds()),
 	}
 	fields = append(fields, additionalFields...)
 
@@ -69,9 +69,21 @@ func (wl *WorkerLogger) LogEventError(
 ) {
 	fields := []zap.Field{
 		zap.Error(err),
-		zap.Int64("duration_ms", duration.Milliseconds()),
+		zap.Int64("event.duration", duration.Nanoseconds()),
 	}
 	fields = append(fields, additionalFields...)
 
 	logger.Error("Event processing failed", fields...)
+}
+
+func (wl *WorkerLogger) Success(ctx context.Context, fields ...zap.Field) {
+	if state, ok := GetEventHandleState(ctx); ok {
+		wl.LogEventSuccess(state.Log, time.Since(state.Start), fields...)
+	}
+}
+
+func (wl *WorkerLogger) Error(ctx context.Context, err error, fields ...zap.Field) {
+	if state, ok := GetEventHandleState(ctx); ok {
+		wl.LogEventError(state.Log, err, time.Since(state.Start), fields...)
+	}
 }

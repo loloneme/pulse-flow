@@ -8,7 +8,6 @@ const (
 	OrderCreated     EventType = "OrderCreated"
 	OrderValidated   EventType = "OrderValidated"
 	ValidationFailed EventType = "ValidationFailed"
-	PaymentStarted   EventType = "PaymentStarted"
 	PaymentSucceeded EventType = "PaymentSucceeded"
 	PaymentFailed    EventType = "PaymentFailed"
 	OrderConfirmed   EventType = "OrderConfirmed"

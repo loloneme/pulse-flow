@@ -3,6 +3,7 @@ package logger
 import (
 	"os"
 
+	"go.elastic.co/ecszap"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -19,20 +20,16 @@ func Init() error {
 		config := zap.NewDevelopmentConfig()
 		config.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
 		logger, err = config.Build()
-	} else {
-		config := zap.NewProductionConfig()
-		config.OutputPaths = []string{"stdout"}
-		config.ErrorOutputPaths = []string{"stderr"}
-
-		config.InitialFields = map[string]interface{}{
-			"service": "pulse-flow",
+		if err != nil {
+			return err
 		}
-
-		logger, err = config.Build()
-	}
-
-	if err != nil {
-		return err
+	} else {
+		encoderConfig := ecszap.NewDefaultEncoderConfig()
+		core := ecszap.NewCore(encoderConfig, zapcore.AddSync(os.Stdout), zap.InfoLevel)
+		logger = zap.New(core, zap.AddCaller()).With(
+			zap.String("service.name", "pulse-flow"),
+			zap.String("ecs.version", "8.11.0"),
+		)
 	}
 
 	Log = logger
