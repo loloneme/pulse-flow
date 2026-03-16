@@ -1,5 +1,7 @@
 # Order Processing System (Event-Driven Architecture in Go)
 
+Первая версия с In Memory реализацией лежит в ветке[https://github.com/loloneme/pulse-flow/tree/in-memory-1]
+
 ## Project Goal
 
 Это проект, ориентированный на обучение таким технологиям, как:
