@@ -1,42 +1,39 @@
 # Order Processing System (Event-Driven Architecture in Go)
 
-## 📌 Project Goal
+### Первая версия с In Memory реализацией
 
-This is a learning-oriented backend project focused on:
+## Project Goal
 
-* Event-Driven Architecture
-* Pub/Sub messaging
-* Resilient system design
-* Message queues (Kafka version + in-memory version)
+Это проект, ориентированный на обучение таким технологиям, как:
+
+* Event-Driven архитектура
+* Паттерн Publisher/Subscriber
+* Паттерны отказоустойчивости
+* Очереди сообщений (Kafka version + in-memory version)
 * Idempotency, retries, timeouts
 * Worker-based async processing
-
-The goal is to deeply understand how distributed systems work internally, not just "use Kafka".
+* ELK logging and observation
 
 ---
 
-## 🧠 System Idea
+## System Idea
 
-The system processes **orders** using asynchronous event-driven communication.
+Система обрабатывает **заказы**, используя асинхронную event-driven коммуникацию
+
 
 ### High-level flow:
 
-1. Client sends `POST /orders`
-2. Order is saved in DB
-3. `OrderCreated` event is published
-4. Other services react asynchronously:
+1. Клиент отправляет HTTP запрос `POST /orders`
+2. Заказ сохраняется в БД (в данном случае PostgreSQL)
+3. `OrderCreated` event публикуется
+4. Остальные сервисы реагируют:
 
-    * Payment processing
-    * Notification service
-    * Analytics
-    * Order state updates
-
-The services **do not call each other directly**.
-They only communicate through events.
+    * Валидация заказа (асинхронно используя сторонние сервисы, в данном проекте - моки)
+    * Произведение оплаты (так же в реальном проекте используя сторонний сервис)
 
 ---
 
-## 🏗 Architecture Overview
+## Architecture Overview
 
 ### Style:
 
@@ -47,22 +44,21 @@ Event-Driven + Pub/Sub
 * HTTP API
 * Order Service (business logic)
 * Event Bus (interface abstraction)
-* InMemory Event Bus implementation
-* Kafka Event Bus implementation (later)
+* InMemory / Kafka Event Bus имплементация
 * Workers (event consumers)
 * PostgreSQL (orders storage)
-* Optional: Redis (idempotency/deduplication)
+* Redis (идемпотентность/дедупликация)
 
 ### Implementations:
 
-* ✅ InMemory Bus (for local dev & understanding flow)
-* 🚧 Kafka Bus (distributed version)
+* InMemory Bus (для понимания работы очередей сообщений)
+* Kafka Bus 
 
-Switching between them should not require changes in business logic.
+Переключение между ними не требует изменений в бизнес-логике
 
 ---
 
-## 🔁 Failure Scenarios & Resilience Patterns (Planned)
+## Failure Scenarios & Resilience Patterns
 
 The project aims to implement and experiment with:
 
@@ -77,103 +73,37 @@ The project aims to implement and experiment with:
 
 ---
 
-## 🧵 Workers
+## Workers
 
-Each subscriber runs in a worker goroutine.
+Каждый подписчик работает в своей горутине. На обработку каждого события есть свои воркеры или воркер-пул
 
-Responsibilities:
+Ответственность:
 
-* Receive event
-* Process business logic
-* Handle retries
-* Log errors
-* Ensure idempotency
-
----
-
-## 🗄 Database
-
-PostgreSQL stores:
-
-### Orders table
-
-* id
-* user_id
-* amount
-* status (created / paid / failed / canceled)
-* created_at
-
-Optional:
-
-* processed_events table (for idempotency)
+* Получить событие
+* Обработать бизнес-логику
+* Ретрай, если при обращении к сторонним сервисам получен таймаут
+* Логирование шагов и ошибок
+* Идемпотентность события
 
 ---
 
-## 🚀 Planned Roadmap
+## Non-Goals
 
-### Phase 1 — Core Flow (InMemory Only)
+Проект на ориентирован на:
 
-* [ ] Basic HTTP server
-* [ ] Order creation
-* [ ] InMemory Event Bus
-* [ ] Payment worker
-* [ ] Order status updates
+* Фронтенд
+* Аутентификацию
+* Безопаность продакшн-уровня 
 
-### Phase 2 — Resilience
+Основная цель - изучить архитектуру и проектирование системы
 
-* [ ] Retry mechanism
-* [ ] Idempotency support
-* [ ] Dead-letter simulation
-* [ ] Graceful shutdown
-
-### Phase 3 — Kafka Integration
-
-* [ ] Kafka-based EventBus
-* [ ] Topic per event type
-* [ ] Consumer groups
-* [ ] Offset management
-
-### Phase 4 — Production-Like Improvements
-
-* [ ] Structured logging
-* [ ] Observability
-* [ ] Metrics
-* [ ] Tracing
-* [ ] Config via env
 
 ---
 
-## 🎯 Learning Objectives
-
-By building this project, I aim to deeply understand:
-
-* How pub/sub really works internally
-* How worker pools operate in Go
-* Concurrency primitives (channels, goroutines)
-* Delivery guarantees
-* Idempotency strategies
-* Decoupling via interfaces
-* Clean architecture in Go
-* How Kafka differs from in-memory messaging
-
----
-
-## ⚠️ Non-Goals
-
-This project is not focused on:
-
-* Frontend
-* Authentication
-* Production-level security
-
-The main purpose is architectural and system design exploration.
-
----
-
-## 🛠 Tech Stack
+## Tech Stack
 
 * Go
 * PostgreSQL
-* Kafka (later stage)
-* Docker (planned)
-* Docker Compose (planned)
+* Kafka
+* Docker
+* ELK Stack - Filebeat, ElasticSearch, Kibana
